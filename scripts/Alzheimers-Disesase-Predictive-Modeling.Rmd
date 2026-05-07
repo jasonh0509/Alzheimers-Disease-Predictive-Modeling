@@ -1,0 +1,1180 @@
+---
+title: "BIST0663Final"
+author: "Jason Hou"
+date: "2026-05-07"
+output: pdf_document
+---
+
+
+```{r,eval=TRUE}
+##This chunk is only needed when running on Jason's laptop.If it is on Jason's device change eval=TRUE
+options("install.lock"=FALSE)
+```
+
+```{r}
+###This is a function used to make sure cluster is terminated to avoid "invalid connection" error
+unregister_dopar <- function() {
+    env <- foreach:::.foreachGlobals
+    rm(list=ls(name=env), pos=env)
+}
+```
+
+
+
+```{r}
+library(xfun)
+```
+
+
+```{r install package in case you do not have it, eval=FALSE, include=FALSE}
+##These packages are needed for later code chunks,if you do not have the following packages installed, please run this chunk to ensure all packages needed are installed.
+install.packages(c("ggplot2","broom","gridExtra","class","tidyverse","leaps","corrplot","RColorBrewer","glmnet","xtable","randomForest","pROC","devtools","UpSetR","naniar","report","rpart","rattle","rpart.plot","BART","DataExplorer","gbm"))
+install.packages("randomForest")
+install.packages("caret")
+install.packages("yardstick")
+install.packages("rtools")
+install.packages("tree")
+install.packages("doParallel")
+```
+
+
+
+```{r load packages, include=FALSE}
+##Here we load the packages needed
+library(ggplot2)
+library(broom)
+library(gridExtra)
+library(class)
+library(tidyverse)
+library(gridExtra)
+library(leaps)
+library(corrplot)
+library(RColorBrewer)
+library(glmnet)
+library(xtable)
+library(randomForest)
+library(tree)
+library(pROC)
+#library(smotefamily)
+library(devtools)
+library(UpSetR)
+library(naniar)
+library(report)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(DataExplorer)
+library(BART)
+library(gbm)
+library(caret)
+library(pROC)
+library(doParallel)
+```
+
+### Load Datas
+```{r}
+ALZH<-read.csv("https://raw.githubusercontent.com/jasonh0509/StatsLearningFinal/refs/heads/main/alzheimers_disease_data.csv")
+```
+
+### Take a Look
+
+```{r}
+glimpse(ALZH)
+```
+
+```{r}
+ALZH_noID<-ALZH[,-1]
+```
+
+
+```{r}
+na_plot_ALZH<-vis_miss(ALZH_noID);na_plot_ALZH
+na_plot_ALZH+ggtitle("Figure 1.5 Visualization of Missing Values")
+```
+
+```{r}
+colSums(is.na(ALZH_noID))
+```
+
+```{r changing data types}
+ALZH_noID$Diagnosis<-as.factor(ALZH_noID$Diagnosis)
+ALZH_noID <- ALZH_noID %>%
+  mutate(across(c(Gender, Ethnicity,EducationLevel,Smoking,FamilyHistoryAlzheimers,CardiovascularDisease,Diabetes,Depression,HeadInjury,Hypertension,MemoryComplaints,BehavioralProblems,Confusion,Disorientation,PersonalityChanges,DifficultyCompletingTasks,Forgetfulness), as.factor))
+```
+
+
+### Set up Data Set(Keep Same Across All Stats Leraning Models)
+
+```{r}
+ALZH.raw <- ALZH_noID %>% select(-DoctorInCharge) %>% mutate(Diagnosis = as.numeric(as.character(Diagnosis)))
+ALZH.gbm <- ALZH.raw
+
+```
+
+```{r}
+ALZH_for_explore<-ALZH.gbm
+```
+
+```{r}
+ALZH_class.set<-ALZH_noID
+ALZH_class.set<-ALZH_class.set%>%
+  mutate(Diagnosis=recode(Diagnosis,`0`="Negative",`1`="Positive"))
+alzh_classes<-ggplot(data = ALZH_class.set, mapping = aes(x=Diagnosis,fill=Diagnosis))+
+  geom_bar()+
+  xlab("Diagnosis Status")+
+  ggtitle("Figure 1.1 Classes of Alzheimer's Disease")
+  
+alzh_classes
+```
+
+
+```{r}
+ggplot(data = ALZH_noID, mapping = aes(x=Diagnosis,fill=Diagnosis))+
+  geom_bar()+
+  xlab("Diagnosis Status")+
+  ggtitle("Classes of Alzheimer's Disease")
+  
+```
+
+
+### More EDA focused on positive cases
+
+
+```{r positive only set}
+alzh_pos<-subset(ALZH_noID,Diagnosis==1)
+
+
+ALZH_for_explore<-ALZH_for_explore%>%
+  mutate(Gender=recode(Gender,`0`="Male",`1`="Female"))
+
+alzh_gender<-ALZH_for_explore%>%
+  group_by(Gender)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = Gender, y = n,fill=Gender))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_gender+ggtitle("Figure 1.2 Gender Distribution")
+
+alzh_diab<-alzh_pos%>%
+  group_by(Diabetes)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = Diabetes, y = n,fill=Diabetes))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_diab+ggtitle("Alzheimer's in Diabetics")
+```
+
+```{r}
+diabete_pos_rt<-round(103/nrow(alzh_pos),3);diabete_pos_rt
+diabete_neg_rt<-round(657/nrow(alzh_pos),3);diabete_neg_rt
+df.diabete <- data.frame(
+  "Diabetes Status" = c("Positive Diabetes", "Negative Diabetes"),
+  "Proportion" = c("13.6%", "86.4%")
+)
+knitr::kable(df.diabete)
+
+```
+
+
+
+```{r}
+alzh_smoke<-alzh_pos%>%
+  group_by(Smoking)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = Smoking, y = n,fill=Smoking))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_smoke+ggtitle("Figure x.x Alzheimer's in Cigarette Users")
+
+```
+
+```{r}
+summary(alzh_pos$Smoking)
+smoking_pos_pct<-217/(nrow(alzh_pos));round(smoking_pos_pct,3)
+smoking_eng_pct<-543/(nrow(alzh_pos));round(smoking_eng_pct,3)
+
+df.smoking <- data.frame(
+  "Smoking Status" = c("Smoker", "Non Smoker"),
+  "Proportion" = c("28.6%", "71.4%")
+)
+
+knitr::kable(df.smoking)
+```
+
+
+```{r}
+
+alzh_pos <- alzh_pos %>%
+  mutate(EducationLevel = recode(EducationLevel,
+                                 `0` = "None",
+                                 `1` = "High School",
+                                 `2` = "Bachelor's",
+                                 `3` = "Higher"))
+alzh_edu<-alzh_pos%>%
+  group_by(EducationLevel)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = EducationLevel, y = n,fill=EducationLevel))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_edu+ggtitle("Alzheimer's Disease and Education")
+
+```
+
+```{r}
+alzh_ethnicity<-alzh_pos%>%
+  group_by(Ethnicity)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = Ethnicity, y = n,fill=Ethnicity))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_edu+ggtitle("Alzheimer's and Ethnicity")
+
+```
+
+
+```{r}
+alzh_depression<-alzh_pos%>%
+  group_by(Depression)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = Depression, y = n,fill=Depression))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_depression+ggtitle("Alzheimer's and Depression")
+
+```
+
+```{r}
+summary(alzh_pos$Depression)
+depre_pos_pct<-150/(nrow(alzh_pos));round(depre_pos_pct,3)
+depre_neg_pct<-610/(nrow(alzh_pos));round(depre_neg_pct,3)
+
+df.dep <- data.frame(
+  "Smoking Status" = c("Depression", "No Depression"),
+  "Proportion" = c("19.7%", "80.3%")
+)
+
+knitr::kable(df.dep)
+```
+
+
+```{r}
+alzh_family<-alzh_pos%>%
+  group_by(FamilyHistoryAlzheimers)%>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = FamilyHistoryAlzheimers, y = n,fill=FamilyHistoryAlzheimers))+
+  geom_col()+
+  labs(y="Count of Alzheimer's ")
+alzh_family+ggtitle("Alzheimer's and Family History")
+
+```
+
+```{r}
+summary(alzh_pos$FamilyHistoryAlzheimers)
+fmhist_pos_pct<-177/(nrow(alzh_pos));round(fmhist_pos_pct,3)
+fmhist_neg_pct<-583/(nrow(alzh_pos));round(fmhist_neg_pct,3)
+
+df.fam <- data.frame(
+  `Family History of AD` = c("Family History", "No Family History"),
+  "Proportion" = c("23.3%", "76.7%")
+)
+
+knitr::kable(df.fam)
+```
+
+
+```{r}
+alzh.mmse<-ALZH_noID
+alzh.mmse<-alzh.mmse%>%
+  mutate(Diagnosis=recode(Diagnosis,`0`="Negative",`1`="Positive"))
+MMSE.scatter<-ggplot(data = alzh.mmse,mapping = aes(x=Age,y=MMSE,color=Diagnosis))+
+  geom_jitter()
+MMSE.scatter+ggtitle("Figure 1.4 Age vs MMSE Respect to Disease Status")
+```
+
+
+
+
+
+### Exploration of Corerlation of 4 Variables related
+
+
+```{r}
+##4 logistic regression models with only response and one of the 4 cholesterol variables
+hdl.logistic<-glm(Diagnosis~CholesterolHDL,data=ALZH_for_explore,family = binomial);summary(hdl.logistic)
+ldl.logistic<-glm(Diagnosis~CholesterolLDL,data=ALZH_for_explore,family = binomial);summary(ldl.logistic)
+total.logistic<-glm(Diagnosis~CholesterolTotal,data=ALZH_for_explore,family = binomial);summary(total.logistic)
+tryglycerides.logistic<-glm(Diagnosis~CholesterolTriglycerides,data=ALZH_for_explore,family = binomial);summary(tryglycerides.logistic)
+
+##HDL is most correlated with the response variable
+```
+
+
+### Logistic
+
+
+```{r}
+ALZH.logistic<-ALZH.gbm%>%select(-c(CholesterolTotal,CholesterolLDL,CholesterolTriglycerides))###set for logistic regression directly derived from ALZH.gbm but removed 3 variables.
+ALZH.logistic$Diagnosis<-as.factor(ALZH.logistic$Diagnosis)
+n <-nrow(ALZH.logistic);n
+
+#set.seed(114514)
+draw<-(1:2149)
+
+train <-ALZH.logistic[draw,]
+train_x<-train%>%dplyr::select(-Diagnosis)
+train_y<-train%>%dplyr::select(Diagnosis)
+
+
+x <-model.matrix(Diagnosis~.,data=ALZH.logistic)
+y <- ALZH.logistic$Diagnosis
+```
+
+
+```{r}
+##Repeated cv MLR
+set.seed(1234)
+
+#Create metric containers
+#auc.values <- c()
+#recall.val<-c()
+#precision.val<-c()
+#accuracy.val<-c()
+
+recall.set<-c()
+precision.set<-c()
+accuracy.set<-c()
+auc.set<-c()
+
+
+for (r in 1:300) {
+  #print(r)
+  # Create k-fold indices for this repeat
+  folds <- createFolds(ALZH.logistic$Diagnosis, k = 5)
+  #print(folds)
+  recall.vect<-c()
+  precision.vect<-c()
+  accuracy.vect<-c()
+  auc.vect<-c()
+
+  for (i in seq_along(folds)) {
+    #print(i)
+    #print(folds[[i]])
+    test.index <- folds[[i]]
+    train.index <- -test.index
+
+    train.fold <- ALZH.logistic[train.index, ]
+    test.fold <- ALZH.logistic[test.index, ]
+    
+    # Fit the logistic regression model
+    model <- glm(Diagnosis ~ ., data = train.fold, family = binomial)
+    
+    # predictions and calculate probabilities on the test set
+    probs <- predict(model, test.fold, type = "response")
+    #Get class prediction
+    preds<-ifelse(probs>0.5,1,0)
+    #make sure it is factor
+    preds <- factor(preds, levels = c("0", "1"))
+    actual<-factor(test.fold$Diagnosis,levels=c("0","1"))
+    ##confusion matrix
+    mtx<-confusionMatrix(preds,actual,positive = "1")
+
+    
+    #get recall and precision and accuracy and auc value
+    recall<-sum(preds == "1" & actual == "1")/sum(actual == "1")
+    #recall2<-mtx$byClass["Sensitivity"]
+    recall.vect<-c(recall.vect,recall)
+    #print(recall.vect)
+    #print(recall)
+    #print(recall2)
+    precision <- mtx$byClass["Pos Pred Value"]
+    precision.vect<-c(precision.vect,precision)
+    
+    accuracy<-mtx$overall["Accuracy"]
+    accuracy.vect<-c(accuracy.vect,accuracy)
+    
+    roc.curve <- roc(test.fold$Diagnosis, probs)
+    auc <- auc(roc.curve)
+    auc.vect<-c(auc.vect,auc)
+    
+    
+  }
+  #print(recall.vect)
+  #print(mean(recall.vect))
+  recall.set<-c(recall.set,mean(recall.vect))
+  precision.set<-c(precision.set,mean(precision.vect))
+  accuracy.set<-c(accuracy.set,mean(accuracy.vect))
+  auc.set<-c(auc.set,mean(auc.vect))
+  
+}
+
+```
+
+
+```{r}
+mean.recall.final<-round(mean(recall.set),3);mean.recall.final
+CI.recall.final<-round(t.test(recall.set)$conf.int,5);CI.recall.final
+
+mean.precision.final<-round(mean(precision.set),3);mean.precision.final
+CI.precision.final<-round(t.test(precision.set)$conf.int,5);CI.precision.final
+
+mean.accuracy.final<-round(mean(accuracy.set),3); mean.accuracy.final
+CI.accuracy.final<-round(t.test(accuracy.set)$conf.int,5);CI.accuracy.final
+
+mean.auc.final<-round(mean(auc.set),4);mean.auc.final
+CI.auc.final<-round(t.test(auc.set)$conf.int,5);CI.auc.final
+
+
+```
+
+```{r}
+Metrics_MLR<-data.frame(
+  Metrics = c(
+    "Recall", "Recall CI",
+    "Precision", "Precision CI",
+    "Accuracy", "Accuracy CI",
+    "AUC", "AUC CI"
+  ),
+  Performances = c(
+    "0.728", "(0.7273,0.7285)",
+    "0.793", "(0.7919, 0.7931)",
+    "0.836", "(0.8357, 0.8364)",
+    "0.8979", "(0.8977, 0.8980)"
+  
+  ))
+knitr::kable(Metrics_MLR,caption = "Performance Metrics of MLR Model")
+```
+
+
+
+### MLR with best subset
+
+```{r include=FALSE}
+#ALZH_leanning<-ALZH_noID%>%dplyr::select(-DoctorInCharge)
+ALZH_leanning<-ALZH.logistic
+bestsubset <- regsubsets(Diagnosis~., data = ALZH_leanning)
+bestsubsum<-summary(bestsubset)
+bestsubsum
+which.min(bestsubsum$cp)
+which.min(bestsubsum$bic)
+which.min(bestsubsum$adjr2)
+```
+
+```{r}
+knitr::kable(coef(bestsubset,8))
+bestSubset_vars <- names(coef(bestsubset, 8))[-1]
+bestSubset_vars
+```
+
+### A MLR with best subset
+
+```{r}
+set.with.BestsubsetVar<-ALZH.logistic%>%dplyr::select(Diagnosis,Age,SleepQuality,CholesterolHDL,MMSE,FunctionalAssessment,MemoryComplaints,BehavioralProblems,ADL)
+```
+
+
+
+```{r}
+##Repeated cv MLR bestsubset
+set.seed(1234)
+
+#Create metric containers
+#auc.values <- c()
+#recall.val<-c()
+#precision.val<-c()
+#accuracy.val<-c()
+
+recall.set.sb<-c()
+precision.set.sb<-c()
+accuracy.set.sb<-c()
+auc.set.sb<-c()
+
+
+# Perform repeated cross-validation
+for (r in 1:300) {
+  #cat("Iteration:", r, "\n")
+  
+  # Create k-fold indices for this repeat
+  folds <- createFolds(set.with.BestsubsetVar$Diagnosis, k = 5)
+  #print(folds)
+  recall.vect.sb<-c()
+  precision.vect.sb<-c()
+  accuracy.vect.sb<-c()
+  auc.vect.sb<-c()
+
+  for (i in seq_along(folds)) {
+    
+    # Get index for training and test sets
+    #print(folds[[i]])
+    test.index <- folds[[i]]
+    train.index <- -test.index
+
+    train.fold <- set.with.BestsubsetVar[train.index, ]
+    test.fold <- set.with.BestsubsetVar[test.index, ]
+    
+    # Fit the logistic regression model
+    model <- glm(Diagnosis ~ ., data = train.fold, family = binomial)
+    
+    # Get predictions and calculate probabilities on the test set
+    probs <- predict(model, test.fold, type = "response")
+    preds<-ifelse(probs>0.5,1,0)
+    preds <- factor(preds, levels = c("0", "1"))
+    actual<-factor(test.fold$Diagnosis,levels=c("0","1"))
+    ##confusion matrix
+    mtx<-confusionMatrix(preds,actual,positive = "1")
+
+    
+    #get recall and precision and accuracy and auc value
+    recall<-sum(preds == "1" & actual == "1")/sum(actual == "1")
+    #recall2<-mtx$byClass["Sensitivity"]
+    recall.vect.sb<-c(recall.vect.sb,recall)
+    #print(recall.vect)
+    #print(recall)
+    #print(recall2)
+    precision <- mtx$byClass["Pos Pred Value"]
+    precision.vect.sb<-c(precision.vect.sb,precision)
+    #print(precision.vect)
+    
+    accuracy<-mtx$overall["Accuracy"]
+    accuracy.vect.sb<-c(accuracy.vect.sb,accuracy)
+    
+    #test.fold$Diagnosis <- as.numeric(as.character(test.fold$Diagnosis))
+    roc.curve <- roc(test.fold$Diagnosis, probs)
+    auc <- auc(roc.curve)
+    auc.vect.sb<-c(auc.vect.sb,auc)
+    
+    
+  }
+  #print(recall.vect)
+  #print(mean(recall.vect))
+  recall.set.sb<-c(recall.set.sb,mean(recall.vect.sb))
+  precision.set.sb<-c(precision.set.sb,mean(precision.vect.sb))
+  accuracy.set.sb<-c(accuracy.set.sb,mean(accuracy.vect.sb))
+  auc.set.sb<-c(auc.set.sb,mean(auc.vect.sb))
+  
+}
+
+```
+
+```{r}
+mean.recallBestSub.final<-round(mean(recall.set.sb),3);mean.recallBestSub.final
+CI.recallSb.final<-round(t.test(recall.set.sb)$conf.int,5);CI.recallSb.final
+
+mean.precisionBestSub.final<-round(mean(precision.set.sb),4);mean.precisionBestSub.final
+CI.precisionSb.final<-round(t.test(precision.set.sb)$conf.int,5);CI.precisionSb.final
+
+mean.accuracySb.final<-round(mean(accuracy.set.sb),4); mean.accuracySb.final
+CI.accuracySb.final<-round(t.test(accuracy.set.sb)$conf.int,5);CI.accuracySb.final
+
+mean.aucSb.final<-round(mean(auc.set.sb),4);mean.aucSb.final
+CI.aucSb.final<-round(t.test(auc.set.sb)$conf.int,5);CI.aucSb.final
+```
+
+```{r}
+Metrics_bestsub<-data.frame(
+  Metrics = c(
+    "Recall", "Recall CI",
+    "Precision", "Precision CI",
+    "Accuracy", "Accuracy CI",
+    "AUC", "AUC CI"
+  ),
+   MLR_BestSubset = c("0.742", "(0.7416,0.7424)",
+    "0.8044", "(0.8040, 0.8047)",
+    "0.8446", "(0.8440, 0.8447)",
+    "0.903", "(0.90288, 0.90304)"))
+knitr::kable(Metrics_bestsub,caption = "Performance Metrics of MLR Model with Lasso")
+```
+
+### Lasso
+
+```{r}
+#conduct cv to find the best lambda for lasso
+set.seed(1234)
+library(glmnet)
+grid <- 10^seq(10,-2, length = 100)
+train_y.lasso<-train_y%>%mutate(Diagnosis=as.factor(Diagnosis))
+train_x_lasso<-as.matrix(train_x)
+lasso.mod<-glmnet(train_x_lasso,train_y.lasso$Diagnosis,alpha = 1,lambda = grid,family = "binomial")
+
+summary(lasso.mod)
+cv.out <-cv.glmnet(train_x_lasso, train_y.lasso$Diagnosis, alpha = 1,family="binomial",nfolds = 10)
+plot(cv.out)
+best_lambda <- cv.out$lambda.min;best_lambda
+lasso_coefs <- coef(cv.out, s = "lambda.min");lasso_coefs
+```
+
+
+```{r}
+train_y<-as.matrix(train_y)
+lasso.final<-glmnet(train_x_lasso,train_y.lasso$Diagnosis,alpha = 1,lambda = best_lambda,family = "binomial")
+#coef(lasso.final)
+#testP<-predict(lasso.final,newx=as.matrix(test.fold%>%select(-Diagnosis)),type = "response");testP
+
+```
+
+
+
+
+```{r message=FALSE}
+##Repeated CV of Lasso
+set.seed(1234)
+
+#Create metric containers
+#auc.values <- c()
+#recall.val<-c()
+#precision.val<-c()
+#accuracy.val<-c()
+
+recall.set.lasso<-c()
+precision.set.lasso<-c()
+accuracy.set.lasso<-c()
+auc.set.lasso<-c()
+
+
+# Nested loop doing repeated cv
+for (r in 1:300) {
+  #print(r)
+  # Create k-folds
+  folds <- createFolds(ALZH.logistic$Diagnosis, k = 5)
+  #print(folds)
+  recall.vect.lasso<-c()
+  precision.vect.lasso<-c()
+  accuracy.vect.lasso<-c()
+  auc.vect.lasso<-c()
+
+  for (i in seq_along(folds)) {
+
+    # Get index for training and test sets
+    #print(folds[[i]])
+    test.index <- folds[[i]]
+    train.index <- -test.index
+
+    train.fold <- ALZH.logistic[train.index, ]
+    train.fold<-as.matrix(train.fold)
+    test.fold <- ALZH.logistic[test.index, ]
+    test.fold<-as.matrix(test.fold)
+    
+    # Fit the lasso regression model
+    model <- glmnet(train.fold[,-30],train.fold[,30],alpha = 1,lambda = best_lambda,family = "binomial")
+    #coef(model)
+    
+    # Get predictions and calculate probabilities on the test set
+    probs <- predict(model, newx=test.fold[,-30], type = "response")
+    #print(probs)
+    preds<-ifelse(probs>0.5,1,0)
+    preds <- factor(preds, levels = c("0", "1"))
+    actual<-factor(test.fold[,"Diagnosis"],levels=c("0","1"))
+    ##confusion matrix
+    mtx<-confusionMatrix(preds,actual,positive = "1")
+
+    
+    #get recall and precision and accuracy and auc value
+    recall<-sum(preds == "1" & actual == "1")/sum(actual == "1")
+    #recall2<-mtx$byClass["Sensitivity"]
+    recall.vect.lasso<-c(recall.vect.lasso,recall)
+    #print(recall.vect)
+    #print(recall)
+    #print(recall2)
+    precision <- mtx$byClass["Pos Pred Value"]
+    precision.vect.lasso<-c(precision.vect.lasso,precision)
+    
+    accuracy<-mtx$overall["Accuracy"]
+    accuracy.vect.lasso<-c(accuracy.vect.lasso,accuracy)
+    
+    roc.curve <- roc(test.fold[,"Diagnosis"], probs)
+    auc <- auc(roc.curve)
+    auc.vect.lasso<-c(auc.vect.lasso,auc)
+    
+  }
+  #print(recall.vect)
+  #print(mean(recall.vect))
+  recall.set.lasso<-c(recall.set.lasso,mean(recall.vect.lasso))
+  precision.set.lasso<-c(precision.set.lasso,mean(precision.vect.lasso))
+  accuracy.set.lasso<-c(accuracy.set.lasso,mean(accuracy.vect.lasso))
+  auc.set.lasso<-c(auc.set.lasso,mean(auc.vect.lasso))
+  
+}
+
+```
+
+
+
+
+```{r}
+mean.recallLasso.final<-round(mean(recall.set.lasso),4);mean.recallLasso.final
+CI.recallLasso.final<-round(t.test(recall.set.lasso)$conf.int,5);CI.recallLasso.final
+
+mean.precisionLasso.final<-round(mean(precision.set.lasso),4);mean.precisionLasso.final
+CI.precisionLasso.final<-round(t.test(precision.set.lasso)$conf.int,5);CI.precisionLasso.final
+
+mean.accuracyLasso.final<-round(mean(accuracy.set.lasso),4); mean.accuracyLasso.final
+CI.accuracyLasso.final<-round(t.test(accuracy.set.lasso)$conf.int,5);CI.accuracyLasso.final
+
+mean.aucLasso.final<-round(mean(auc.set.lasso),4);mean.aucLasso.final
+CI.aucLasso.final<-round(t.test(auc.set.lasso)$conf.int,5);CI.aucLasso.final
+```
+
+```{r}
+Metrics_lasso<-data.frame(
+  Metrics = c(
+    "Recall", "Recall CI",
+    "Precision", "Precision CI",
+    "Accuracy", "Accuracy CI",
+    "AUC", "AUC CI"
+  ),
+   Lasso = c("0.7286", "(0.7281,0.7290)",
+    "0.8083", "(0.8078, 0.8088)",
+    "0.8426", "(0.8423, 0.8428)",
+    "0.9011", "(0.90105, 0.90125)"))
+knitr::kable(Metrics_lasso,caption = "Performance Metrics of MLR Model with Lasso")
+```
+
+
+```{r}
+ALZH_noID_noCholest<-
+  ALZH_noID%>%
+  dplyr::select(-CholesterolTotal,-CholesterolHDL,-CholesterolLDL,-CholesterolTriglycerides)
+```
+
+
+
+### kNN
+
+```{r}
+ALZH_IntOnly<-ALZH_noID[,sapply(ALZH.gbm,is.integer)]
+ALZH_double<-ALZH_noID[,sapply(ALZH.gbm,is.double)]
+ALZH_NumOnly<-cbind(ALZH_IntOnly,ALZH_double)
+ALZH_fct<-ALZH_noID[,sapply(ALZH.gbm,is.factor)]
+
+```
+
+
+#### Feature Selection for kNN
+
+```{r}
+
+
+RFE.featureSet <- ALZH_NumOnly[draw,-which(names(ALZH_NumOnly) == "Diagnosis")]
+RFE.featureSet<-RFE.featureSet[,-which(names(RFE.featureSet) == "DoctorInCharge")]
+RFE.featureSet<-RFE.featureSet%>%select(-c(CholesterolTotal,CholesterolLDL,CholesterolTriglycerides))
+RFE.response <- ALZH_NumOnly[draw, "Diagnosis"]
+
+set.seed(12345)
+control<-rfeControl(functions = rfFuncs, method = "cv", number = 10)
+RFE.result<-rfe(RFE.featureSet,RFE.response, sizes = c(1:15), rfeControl = control)
+print(RFE.result)
+```
+
+```{r}
+#alzh_secondKNN and the later alzh.gbm.forTuning are the same
+alzh_secondKNN<-ALZH_NumOnly[draw,]%>%
+dplyr::select(FunctionalAssessment, MMSE, ADL, DietQuality, SleepQuality,Diagnosis)%>%
+mutate(Diagnosis=as.factor(Diagnosis))
+alzh_secondKNN.test<-ALZH.gbm[-draw,]%>%dplyr::select(FunctionalAssessment, MMSE, ADL, DietQuality, SleepQuality,Diagnosis)%>%
+mutate(Diagnosis=as.factor(Diagnosis))
+```
+
+
+```{r}
+set.seed(12345)
+k_list<-seq(1,20,by=1)
+nk<-length(k_list);nk
+Perf.Metric.knn<-data.frame(k=rep(0,nk),Recall=rep(0,length(k_list)),Precision=rep(0,length(k_list)),F1_Score=rep(0,length(k_list)),
+Accuracy=rep(0,length(k_list)))
+
+set.seed(12345)
+n<-nrow(alzh_secondKNN)
+pool<-rep(1:10,ceiling(n/10))
+fold<-sample(pool,n,replace = FALSE)
+
+for(k in 1:nk){
+  Perf.Metric.knn$k[k]<-k
+  
+  recall.sum<-0
+  precision.sum<-0
+  f1_score.sum<-0
+  accuracy.sum<-0
+
+
+  for(i in 1:10){
+    #Find data in each fold
+    infold<-which(fold == i)
+    
+    #Create training and testing sets
+    Train<-alzh_secondKNN[-infold,]
+    Test<-alzh_secondKNN[infold,]
+    #Run kNN
+    k_preds<-knn(Train%>%select(-Diagnosis),Test%>%select(-Diagnosis),k=k,cl=Train$Diagnosis)
+  
+    Recall<-sum(k_preds == 1 & Test$Diagnosis == 1)/sum(Test$Diagnosis == 1);recall.sum<-recall.sum+Recall
+    Precision<-sum(k_preds == 1 & Test$Diagnosis == 1)/sum(k_preds == 1);precision.sum<-precision.sum+Precision
+    F1_Score<-2*Precision*Recall/(Precision+Recall);f1_score.sum<-f1_score.sum+F1_Score
+    Accuracy<-sum(k_preds == Test$Diagnosis)/length(Test$Diagnosis);accuracy.sum<-accuracy.sum+Accuracy
+
+  }
+
+    Perf.Metric.knn$Recall[k]<-recall.sum/10
+    Perf.Metric.knn$Precision[k]<-precision.sum/10
+    Perf.Metric.knn$F1_Score[k]<-f1_score.sum/10
+    Perf.Metric.knn$Accuracy[k]<-accuracy.sum/10
+    
+}
+
+Perf.Metric.knn$k[which.max(Perf.Metric.knn$Recall)]
+Perf.Metric.knn
+```
+
+
+
+
+```{r message=FALSE, warning=FALSE}
+set.seed(1234)
+
+#Create metric containers
+#auc.values <- c()
+#recall.val<-c()
+#precision.val<-c()
+#accuracy.val<-c()
+
+recall.set.knn<-c()
+precision.set.knn<-c()
+accuracy.set.knn<-c()
+auc.set.knn<-c()
+
+
+# Perform repeated cross-validation
+for (r in 1:300) {
+  
+  # Create k-fold indices for this repeat
+  folds <- createFolds(alzh_secondKNN$Diagnosis, k = 5)
+  #print(folds)
+  recall.vect.knn<-c()
+  precision.vect.knn<-c()
+  accuracy.vect.knn<-c()
+  auc.vect.knn<-c()
+
+  for (i in seq_along(folds)) {
+    
+    # Get index for training and test sets
+    #print(folds[[i]])
+    test.index <- folds[[i]]
+    train.index <- -test.index
+
+    train.fold <- alzh_secondKNN[train.index, ]
+    test.fold <- alzh_secondKNN[test.index, ]
+    
+    # Fit the knn regression model
+    model <- knn(train = train.fold%>%select(-Diagnosis),test = test.fold%>%select(-Diagnosis),cl = train.fold$Diagnosis,k=1)
+    
+    # Get predictions and calculate probabilities on the test set
+    #probs <- predict(model, test.fold, type = "response")
+    #preds<-ifelse(probs>0.5,1,0)
+    #preds <- factor(preds, levels = c("0", "1"))
+    actual<-factor(test.fold$Diagnosis,levels=c("0","1"))
+    ##confusion matrix
+    mtx<-confusionMatrix(model,actual,positive = "1")
+
+    
+    #get recall and precision and accuracy and auc value
+    recall<-sum(model == "1" & actual == "1")/sum(actual == "1")
+    #recall2<-mtx$byClass["Sensitivity"]
+    recall.vect.knn<-c(recall.vect.knn,recall)
+    #print(recall.vect)
+    #print(recall)
+    #print(recall2)
+    precision <- mtx$byClass["Pos Pred Value"]
+    precision.vect.knn<-c(precision.vect.knn,precision)
+    
+    accuracy<-mtx$overall["Accuracy"]
+    accuracy.vect.knn<-c(accuracy.vect.knn,accuracy)
+    
+    roc.curve <- roc(test.fold$Diagnosis, as.numeric(model))
+    auc <- auc(roc.curve)
+    auc.vect.knn<-c(auc.vect.knn,auc)
+    
+    
+  }
+  #print(recall.vect)
+  #print(mean(recall.vect))
+  recall.set.knn<-c(recall.set.knn,mean(recall.vect.knn))
+  precision.set.knn<-c(precision.set.knn,mean(precision.vect.knn))
+  accuracy.set.knn<-c(accuracy.set.knn,mean(accuracy.vect.knn))
+  auc.set.knn<-c(auc.set.knn,mean(auc.vect.knn))
+  
+}
+
+```
+
+```{r}
+mean.recallknn.final<-round(mean(recall.set.knn),4);mean.recallknn.final
+CI.recallknn.final<-round(t.test(recall.set.knn)$conf.int,5);CI.recallknn.final
+
+mean.precisionknn.final<-round(mean(precision.set.knn),4);mean.precisionknn.final
+CI.precisionknn.final<-round(t.test(precision.set.knn)$conf.int,5);CI.precisionknn.final
+
+mean.accuracyknn.final<-round(mean(accuracy.set.knn),4); mean.accuracyknn.final
+CI.accuracyknn.final<-round(t.test(accuracy.set.knn)$conf.int,5);CI.accuracyknn.final
+
+mean.aucknn.final<-round(mean(auc.set.knn),4);mean.aucknn.final
+CI.aucknn.final<-round(t.test(auc.set.knn)$conf.int,5);CI.aucknn.final
+
+```
+
+```{r}
+Metrics_knn<-data.frame(
+  Metrics = c(
+    "Recall", "Recall CI",
+    "Precision", "Precision CI",
+    "Accuracy", "Accuracy CI",
+    "AUC", "AUC CI"
+  ),
+   KNN = c("0.637", "(0.6368,0.6387)",
+    "0.642", "(0.6411, 0.6429)",
+    "0.7458", "(0.7452, 0.7463)",
+    "0.721", "(0.7207, 0.7218)"))
+knitr::kable(Metrics_knn,caption = "Performance Metrics of KNN Classifier")
+```
+
+
+### GBM
+
+```{r}
+set.seed(12345)
+ALZH.boosting<-ALZH.gbm%>%select(-c(CholesterolTotal,CholesterolLDL,CholesterolTriglycerides))
+```
+
+
+#### Tune Together with 10 fold cv
+
+```{r}
+ALZH.gbm.forTuning<-ALZH.gbm[draw,]
+#ALZH.gbm.realTest<-ALZH.gbm[-draw,]
+```
+
+
+```{r eval=FALSE, include=FALSE}
+library(parallel)
+library(doParallel)
+#add an RFE
+rfe.featureGBM<-ALZH.gbm.forTuning[draw,-which(names(ALZH.gbm.forTuning) == "Diagnosis")]
+rfe.featureGBM<-rfe.featureGBM%>%dplyr::select(-CholesterolTotal,-CholesterolHDL,-CholesterolLDL,-CholesterolTriglycerides)
+RFE.responseGBM<-ALZH.gbm.forTuning[draw,"Diagnosis"]
+RFE.responseGBM<-as.factor(RFE.responseGBM)
+
+
+num_cores <- detectCores() - 1
+cl2 <- makeCluster(num_cores) 
+registerDoParallel(cl2) 
+
+set.seed(1124)
+control.gbm<-rfeControl(functions = rfFuncs, method = "cv", number = 10,allowParallel = TRUE)
+RFE.result.gbm<-rfe(rfe.featureGBM,RFE.responseGBM, sizes =c(5,6,10,15) , rfeControl = control.gbm)
+print(RFE.result.gbm)
+
+stopCluster(cl2)
+
+```
+
+
+```{r include=FALSE}
+closeAllConnections()
+unregister_dopar()
+```
+
+
+
+
+```{r eval=FALSE, warning=FALSE, include=FALSE, r,eval=TRUE}
+set.seed(12345)
+lambda_val <- seq(0.01, 0.05, by = 0.01)
+ntree_val <- c(1000, 2000, 3000)
+
+ALZH.gbm.forGrid<-ALZH.gbm.forTuning%>%select(c(FunctionalAssessment, ADL, MMSE, MemoryComplaints, BehavioralProblems,CholesterolHDL,Diagnosis))
+ALZH.gbm.forGrid$Diagnosis <- factor(ALZH.gbm.forGrid$Diagnosis, levels = c(0, 1), labels = c("No", "Yes"))
+ALZH.gbm.realTest<-ALZH.gbm[-draw,]%>%select(-c(CholesterolTotal,CholesterolLDL,CholesterolTriglycerides))
+
+
+### Grid Creation
+train.control<-trainControl(method="cv",number=10,summaryFunction=twoClassSummary,classProbs=TRUE,savePredictions=TRUE)
+grid<-expand.grid(shrinkage=lambda_val,
+n.trees=ntree_val,
+interaction.depth=4,n.minobsinnode=10)##default is 10
+
+
+set.seed(12345)
+Boosting_alzh_grid <- train(
+  Diagnosis ~ ., 
+  data = ALZH.gbm.forGrid, 
+  method = "gbm", 
+  trControl = train.control, 
+  tuneGrid = grid, 
+  distribution = "bernoulli",
+  metric = "ROC",
+  verbose=FALSE,
+  train.fraction = 0.9
+)
+
+
+gridTrainResult<-as.data.frame(Boosting_alzh_grid$results)
+gridTrainResult[which.max(gridTrainResult$Sens),]
+Boosting_alzh_grid$bestTune
+
+```
+
+
+
+```{r true gbm cv, message=FALSE, warning=FALSE}
+alzh.forCI<-ALZH.gbm.forGrid
+alzh.forCI <- alzh.forCI %>%
+  mutate(Diagnosis = ifelse(Diagnosis == "Yes", 1, 0))
+set.seed(1234)
+
+#Create metric containers
+#auc.values <- c()
+#recall.val<-c()
+#precision.val<-c()
+#accuracy.val<-c()
+
+recall.set.gbm<-c()
+precision.set.gbm<-c()
+accuracy.set.gbm<-c()
+auc.set.gbm<-c()
+
+
+# Perform repeated cross-validation
+for (r in 1:300) {
+  #print(r)
+
+  # Create k-fold indices for every iteration
+  folds <- createFolds(alzh.forCI$Diagnosis, k = 5)
+  #print(folds)
+  recall.vect.gbm<-c()
+  precision.vect.gbm<-c()
+  accuracy.vect.gbm<-c()
+  auc.vect.gbm<-c()
+
+  for (i in seq_along(folds)) {
+
+    # Get index for training and test sets
+    #print(folds[[i]])
+    test.index <- folds[[i]]
+    train.index <- -test.index
+
+    train.fold <- alzh.forCI[train.index, ]
+    test.fold <- alzh.forCI[test.index, ]
+    
+    # Fit the logistic regression model
+    model <- gbm(Diagnosis~.,data=train.fold,distribution="bernoulli",n.trees=1000,interaction.depth=4,shrinkage=0.05)
+    
+    # Get predictions and calculate probabilities on the test set
+    probs <- predict(model, test.fold, type = "response")
+    preds<-ifelse(probs>0.5,1,0)
+    preds <- factor(preds, levels = c("0", "1"))
+    actual<-factor(test.fold$Diagnosis,levels=c("0","1"))
+    ##confusion matrix
+    mtx<-confusionMatrix(preds,actual,positive = "1")
+
+    
+    #get recall and precision and accuracy and auc value
+    recall<-sum(preds == "1" & actual == "1")/sum(actual == "1")
+    #recall2<-mtx$byClass["Sensitivity"]
+    recall.vect.gbm<-c(recall.vect.gbm,recall)
+    #print(recall.vect)
+    #print(recall)
+    #print(recall2)
+    precision <- mtx$byClass["Pos Pred Value"]
+    precision.vect.gbm<-c(precision.vect.gbm,precision)
+    
+    accuracy<-mtx$overall["Accuracy"]
+    accuracy.vect.gbm<-c(accuracy.vect.gbm,accuracy)
+    
+    roc.curve <- roc(test.fold$Diagnosis, probs)
+    auc <- auc(roc.curve)
+    auc.vect.gbm<-c(auc.vect.gbm,auc)
+    
+    
+  }
+  #print(recall.vect)
+  #print(mean(recall.vect))
+  recall.set.gbm<-c(recall.set.gbm,mean(recall.vect.gbm))
+  precision.set.gbm<-c(precision.set.gbm,mean(precision.vect.gbm))
+  accuracy.set.gbm<-c(accuracy.set.gbm,mean(accuracy.vect.gbm))
+  auc.set.gbm<-c(auc.set.gbm,mean(auc.vect.gbm))
+  
+}
+
+```
+
+
+```{r}
+mean.recallgbm.final<-round(mean(recall.set.gbm),4);mean.recallgbm.final
+CI.recallgbm.final<-round(t.test(recall.set.gbm)$conf.int,5);CI.recallgbm.final
+
+mean.precisiongbm.final<-round(mean(precision.set.gbm),4);mean.precisiongbm.final
+CI.precisiongbm.final<-round(t.test(precision.set.gbm)$conf.int,5);CI.precisiongbm.final
+
+mean.accuracygbm.final<-round(mean(accuracy.set.gbm),4); mean.accuracygbm.final
+CI.accuracygbm.final<-round(t.test(accuracy.set.gbm)$conf.int,5);CI.accuracygbm.final
+
+mean.aucgbm.final<-round(mean(auc.set.gbm),4);mean.aucgbm.final
+CI.aucgbm.final<-round(t.test(auc.set.gbm)$conf.int,5);CI.aucgbm.final
+```
+
+```{r}
+Metrics_gbm<-data.frame(
+  Metrics = c(
+    "Recall", "Recall CI",
+    "Precision", "Precision CI",
+    "Accuracy", "Accuracy CI",
+    "AUC", "AUC CI"
+  ),
+   GBM = c("0.917", "(0.9169,0.9174)",
+    "0.947", "(0.9464, 0.9469)",
+    "0.9524", "(0.9523, 0.9526)",
+    "0.952", "(0.9513, 0.9516)"))
+knitr::kable(Metrics_gbm,caption = "Performance Metrics of GBM Classifier")
+```
+
+
+
+
+```{r}
+Metrics.total <- data.frame(
+  Metrics_Models = c(
+    "Recall", "Recall CI",
+    "Precision", "Precision CI",
+    "Accuracy", "Accuracy CI",
+    "ROC_AUC", "ROC CI"
+  ),
+  MLR = c(
+    "0.728", "(0.7273,0.7285)",
+    "0.793", "(0.7919, 0.7931)",
+    "0.836", "(0.8357, 0.8364)",
+    "0.8979", "(0.8977, 0.8980)"
+  ),
+  MLR_BestSubset = c("0.742", "(0.7416,0.7424)",
+    "0.8044", "(0.8040, 0.8047)",
+    "0.8446", "(0.8440, 0.8447)",
+    "0.903", "(0.90288, 0.90304)"),
+  
+  Lasso = c("0.7286", "(0.7281,0.7290)",
+    "0.8083", "(0.8078, 0.8088)",
+    "0.8426", "(0.8423, 0.8428)",
+    "0.9011", "(0.90105, 0.90125)"),
+  
+  KNN = c("0.637", "(0.6368,0.6387)",
+    "0.642", "(0.6411, 0.6429)",
+    "0.7458", "(0.7452, 0.7463)",
+    "0.721", "(0.7207, 0.7218)"),
+  
+  GBM = c("0.917", "(0.9169,0.9174)",
+    "0.947", "(0.9464, 0.9469)",
+    "0.9524", "(0.9523, 0.9526)",
+    "0.952", "(0.9513, 0.9516)")
+)
+
+knitr::kable(Metrics.total)
+```
+
+
+
+
