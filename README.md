@@ -29,6 +29,11 @@ Model performance was evaluated using repeated 5-fold cross-validation over 300 
 ## Notes
 This project originated from graduate-level statistical learning coursework and was organized into a reproducible portfolio project. The dataset is synthetic, so results should be interpreted as methodological evidence rather than clinically deployable findings.
 
+## Documentation & Code Organization Note
+
+This project’s analytical methods, modeling decisions, and statistical workflow were developed by the author.  
+AI-assisted tools were used selectively to help reorganize the original  R Markdown workflow into a modular portfolio structure (e.g., separating data cleaning, EDA, feature engineering, model training, and evaluation scripts) for improved readability, reproducibility, and presentation purposes.
+
 ## Repository Structure
 ```text
 data/
